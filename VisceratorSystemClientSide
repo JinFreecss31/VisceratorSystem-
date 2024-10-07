@@ -1,0 +1,1308 @@
+print("Hello world!")
+
+-- lets get all vairables first 
+
+local CreateTilesLoop = Instance.new("BoolValue") -- Variables
+CreateTilesLoop.Name = "CreateTilesLoop"
+CreateTilesLoop.Value = false
+
+local CreateMovingLoop = Instance.new("BoolValue")
+CreateMovingLoop.Name = "CreateMovingLoop"
+CreateMovingLoop.Value = false
+
+local CreateAttackLoop = Instance.new("BoolValue")
+CreateAttackLoop.Name = "CreateAttackLoop"
+CreateAttackLoop.Value = false
+
+local CreateTilesLoop = Instance.new("BoolValue")
+CreateTilesLoop.Name = "CreateTilesLoop"
+CreateTilesLoop.Value = false
+
+-- above variables to use for trigger spawning new types of loops when needed! (usually from other already exist loops or rarely from Viscerator Spawn Connection!
+
+local MaxAttackDistance = game:GetService("ReplicatedStorage"):FindFirstChild("MaxDistanceOfAttack").Value -- Max distnace of Visc attack (From its own Position before of start doing attack!)
+local Player = game.Players.LocalPlayer -- just Player
+local Character = Player.Character or Player.CharacterAdded:Wait() -- Char of our Player!
+local HumanoidRootPart = Character:WaitForChild("HumanoidRootPart") -- Humanoid Root parts!
+local Teams = workspace:WaitForChild("Teams") -- Teams
+local CivilianTeam = Teams:WaitForChild("CivilianTeam") -- Civilian team! (As in actual city 17 game, for Rebelions and Civilians!)
+local Viscerator = nil -- Viscerator
+local TypeOfActionToDo = nil -- What type of action will do 
+
+-- Tile Variables
+local CurrentTileVisceratorAt = nil -- will be used to figure out at which tile Viscerator currently is
+local TilesLoopActive = false -- To help figure when Tiles loop is active or not
+local BreakTilesLoop = false -- To give signal for Tiles loop to destroy itself
+
+-- Variables Helpers for Attack Enemies Action
+local CurrentListOfEnemies = {} -- List of enemies whom Viscirator will attack if seeing on sight, gonna be updated on AttackOppositeTeamEnemies function!
+local CurrentChosenEnemyToAttack = "None" -- Which enemy has been chosen current time for attack!
+local LastEnemyAttacked = "None" -- Last enemy whom attacked
+--local MaxDistanceToAttack = 60 -- Max Distance to attack of visc! (ops one already exist! )
+
+--local TilesLoopTick = 1/6
+--local MovingLoopTick = 1/6
+local AttackLoopTick = 0.666 -- only this one for outside function
+-- No longer needed as new and better version right below!
+
+-- here we go 
+
+local FunctionsAndTheirTicksToLoop = {} -- each function name to help then get their loop ticks! (Mainly 2 Loops for Attacking and Moving!) One for tiles to help configure movement around world!
+FunctionsAndTheirTicksToLoop["TakeOut"] = 0.015
+FunctionsAndTheirTicksToLoop["PlacedOnBack"] = 0.015
+FunctionsAndTheirTicksToLoop["FlyToSpotAndStay"] = 1/6
+FunctionsAndTheirTicksToLoop["FollowCharacter"] = 1/6
+FunctionsAndTheirTicksToLoop["AttackNearestPerson"] = 0.666 
+FunctionsAndTheirTicksToLoop["AttackChosenPerson"] = 0.666
+FunctionsAndTheirTicksToLoop["AttackOppositeTeamEnemies"] = 0.666
+FunctionsAndTheirTicksToLoop["CreateTiles"] = 1/6 
+
+local CharacterIteration = 0 -- to just keep character times spawned, just in case but probably will not use anywhere
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage") -- RS!
+local PlayerServerStats = Player:WaitForChild("ServerStats") -- Player stats for server, It is used to conenct server and client! 
+local VisceratorSpawned = PlayerServerStats:FindFirstChild("VisceratorSpawned") -- if Visc spawned or no currently
+local LastViscAttackHappened = PlayerServerStats:FindFirstChild("LastViscAttackHappened") -- os.clock() of last time Visc did Attack Action on server side!
+local SpawnViscEvent = ReplicatedStorage:WaitForChild("SpawnVisc") -- SpawnViscEvent
+local DoAttackEvent = ReplicatedStorage:WaitForChild("DoAttack") -- DoAttack of visc event
+local SpawnNpcEvent = ReplicatedStorage:WaitForChild("SpawnNpcs") -- spawn npcs event to help us easily spawn those npcs to check and use for AttackOppositeEnemiesTeam function!
+
+
+-- For much more Tests...
+local SpecialLocalStats = Instance.new("Folder", Player)
+SpecialLocalStats.Name = "SpecialLocalStats"
+local TilesLoopRunning = Instance.new("BoolValue", SpecialLocalStats)
+TilesLoopRunning.Name = "TilesLoopRunning"
+TilesLoopRunning.Value = false
+
+local TotalTilesLoopsCreated = Instance.new("IntValue", SpecialLocalStats)
+TotalTilesLoopsCreated.Name = "TotalTilesLoopsCreated"
+TotalTilesLoopsCreated.Value = 0
+
+local RunningLoopRunning = Instance.new("BoolValue", SpecialLocalStats)
+RunningLoopRunning.Name = "RunningLoopRunning"
+RunningLoopRunning.Value = false
+
+local AttackLoopRunning = Instance.new("BoolValue", SpecialLocalStats)
+AttackLoopRunning.Name = "AttackLoopRunning"
+AttackLoopRunning.Value = false
+
+
+-- Here all neccesary things for Tiles system and loop
+local PathfindingService = game:GetService("PathfindingService") -- Pathfinding
+local NewPathForViscerator = PathfindingService:CreatePath() -- gonna use it for pathfinding! Only used once at a time so will use it for any case when new path needed!
+
+-- for tiles
+local TilesCenter = Vector3.new(0,3,0) -- Tiles Center, from where they all gonna be calculated!
+local SingleTileSize = 6 -- In Studs (X,Y,Z axis size in current case, for creating Tiles)
+local PlayerTilesFolder = nil -- Tiles Folder 
+
+local DESTROYALLLOOPS = false -- well no longer needed but i'll keep for now just in case
+--local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local PlayerTilesFolder = ReplicatedStorage:WaitForChild("PlayersTilesFolder"):Clone() -- Player Tiles Folder!
+PlayerTilesFolder.Name = Player.Name.."TilesFolder"
+PlayerTilesFolder.Parent = game.Workspace
+local TileFolderExample = ReplicatedStorage:WaitForChild("TileFolderExample") -- Example of single tile folder and what stats will be used inside of it!
+local TilePartExample = ReplicatedStorage:WaitForChild("TilePartExample") -- partss to visualize lines!
+local SpecialPointPartExample = ReplicatedStorage:WaitForChild("SpecialPointPartExample") -- For HRP last time detected on each of existing Tiles!
+
+local TotalTilesCreated = 0 -- Toal Tiles
+local CurrentTilesInUse = 0 -- Current amount of tiles using!
+local TotalTimesTilesUsed = 0 -- Total Tiles Created!
+local LastTileWhichWasChanged :String = 0 -- Which Tile was lastly Created/Changed (String)
+local DestroyUnnecessaryTilesOnNewItteration = false -- no longer needed as now tiles loop and its functions will automatically do so in any possible case 
+local LastTimeVisceratorPathUpdated = os.clock() -- very important stat to know when last succesfull fly action was performed!
+local MaxTimeWithoutUpdatePath = 6 -- If this amount of seconds haven't fly , limits reached and must teleport!
+local MaxDistance = 120 -- If Visc for some reason this amounnt of studs or even more away of Character, teleportation time!
+-- Here NewRayCastParams = 
+local NewRayCastParams = RaycastParams.new() -- New raycast will be used a lot to create paths and check if certain actions Viscerator can perform!
+NewRayCastParams.FilterType = Enum.RaycastFilterType.Exclude
+NewRayCastParams.FilterDescendantsInstances = {}
+--NewRayCastParams.FilterDescendantsInstances = {Character, workspace:WaitForChild("Viscerators"), workspace:WaitForChild("Teams"), PlayerTilesFolder}
+-- now seems fine
+
+local TilesAtDestroy = 210 -- At how much current tiles in use to destroy some!
+local TilesToDestroyInTotal = 105 -- How much to destroy!
+local TilesIncrementPerDestroy = 2 -- how much tiles to skip per new iteration (Amount - 1 is actual tiles skip per) 
+local VisceratorOffset = CFrame.new(-1.35, 1, 2)
+
+local MainFunctionsTable = {} -- main functions table will hold all main functions to easily call them whenever needed
+
+local CurrentActionVisceratorDoing = Instance.new("StringValue") -- Use to detect current action Viscerator doing
+CurrentActionVisceratorDoing.Name = "CurrentActionVisceratorDoing"
+CurrentActionVisceratorDoing.Value = "None"
+local VisceratorActionToDo = Instance.new("StringValue") -- Use to check what action viscerator should do next
+VisceratorActionToDo.Name = "VisceratorActionToDo"
+VisceratorActionToDo.Value = "None"
+local TableWithNamesOfAllActionsTypes = {} -- help to figure out to which Loop each action type is related!
+TableWithNamesOfAllActionsTypes["TakeOut"] = {["LoopType"] = "MovingLoop"}
+TableWithNamesOfAllActionsTypes["PlacedOnBack"] = {["LoopType"] = "MovingLoop"}
+TableWithNamesOfAllActionsTypes["FlyToSpotAndStay"] = {["LoopType"] = "MovingLoop"}
+TableWithNamesOfAllActionsTypes["FollowCharacter"] = {["LoopType"] = "MovingLoop"}
+TableWithNamesOfAllActionsTypes["AttackNearestPerson"] = {["LoopType"] = "AttackLoop"} 
+TableWithNamesOfAllActionsTypes["AttackChosenPerson"] = {["LoopType"] = "AttackLoop"}
+TableWithNamesOfAllActionsTypes["AttackOppositeTeamEnemies"] = {["LoopType"] = "AttackLoop"}
+TableWithNamesOfAllActionsTypes["CreateTiles"] = {["LoopType"] = "TilesLoop"} -- last one kind of no needed tho
+local LoopsToCreateValuesTable = {} -- hold loops BoolValue Objects by their type to then quickly activate when needed to!
+LoopsToCreateValuesTable.MovingLoop = CreateMovingLoop
+LoopsToCreateValuesTable.AttackLoop = CreateAttackLoop
+LoopsToCreateValuesTable.TilesLoop = CreateTilesLoop
+
+local LoopsTypesAndTheirActionsFunctions = {} -- gonna use them to help figure out to which loop each function belong and to use them easily and fast!
+LoopsTypesAndTheirActionsFunctions.MovingLoop = 0
+LoopsTypesAndTheirActionsFunctions.AttackLoop = 0
+LoopsTypesAndTheirActionsFunctions.TilesLoop = 0 -- gonna put here all functions to do!
+
+local PossiblePositionToMoveTo = nil -- possible pos to move to, used to fly after new pathfinding created
+local PossibleTarget = nil -- possible person to attack 
+
+local CharacterFullHeight = Character:GetExtentsSize() -- full height of Character
+local AdjustSizeToVisc = CharacterFullHeight.Y/2 -- just some settings to make Current visc depends on its and char size to look more suitable
+local AdjustCFrameToVisc = CFrame.new(0, AdjustSizeToVisc, 0)
+local FlyLimitOfSeconds = 15 -- not used for certain reason since Studs limit exist but yeah waned to use for case when flying limits become too huge
+
+local MovingObjectFunctions = {} -- will store all moving objects and then use them all! 
+
+
+local AttackMethodsFunctions = {} -- storing all of attacking methods which are functions !
+
+
+
+LoopsTypesAndTheirActionsFunctions.MovingLoop =  MovingObjectFunctions -- small setup to then use in other table to quickly find loops from functions!
+LoopsTypesAndTheirActionsFunctions.AttackLoop = AttackMethodsFunctions -- same jsut for attack functions and Loop!
+
+
+local ChangeActionOnCooldown = Instance.new("BoolValue") -- which next action want to change!
+ChangeActionOnCooldown.Name = "ChangeActionOnCooldown" -- Some Cooldown and other settings!
+ChangeActionOnCooldown.Value = false
+local CooldownOfAction = 0.21
+local Mouse = Player:GetMouse() -- mouse for some functions to trigger other functions such as Start follow/Stay/Attack (will be used inside of buttons functions!)
+Mouse.TargetFilter = Character -- just small target filter, instead should use RayCast for it tho! Get mouse direction and use in RayCast instead! 
+
+
+
+local VisceratorGui = Player.PlayerGui:WaitForChild("VisceratorGui") -- Gui Buttons By names gonna trigger certain events! Such as stop Attack and start follow or etc!
+local VisceratorFrame = VisceratorGui:WaitForChild("VisceratorFrame")
+local CurrentActionDoingLabel = VisceratorFrame:WaitForChild("CurrentActionDoingLabel")
+local TableOfButtonsToActivate = {}
+local TableOfTriggetFunctions = {}
+
+local VisceratorsFolder = workspace:WaitForChild("Viscerators") -- Viscs folder!
+
+local SpawnCiviliansTeamNpcsGui = Player.PlayerGui:WaitForChild("SpawnCivilianTeamNpcsGui") -- part to help spawn some Pseudo "Civilian Players"!
+local SpawnCivsFrame = SpawnCiviliansTeamNpcsGui:WaitForChild("SpawnCivTeamNpcsFrame")
+
+local CivilianExample = ReplicatedStorage:WaitForChild("CivilianExample")
+local TotalCiviliansSpawned = 0
+
+local TypesOfNpcsToSpawn = {
+
+	["SpawnRebelion"] = {["MainRank"] = "Rebelion"; ["GunEquipped"] = true};
+	["SpawnCivilianWithoutGun"] = {["MainRank"] = "Civilian"; ["GunEquipped"] = false};
+	["SpawnCivilianWithGun"] = {["MainRank"] = "Civilian"; ["GunEquipped"] = true};
+
+} -- Small setup of who can be spawned! 
+
+CurrentActionDoingLabel.Text = "Current State : Not Spawned!" -- just change some text at very start of game!
+
+local NegativeAdjustmentCFrame = CFrame.new(-AdjustCFrameToVisc.X, -AdjustCFrameToVisc.Y, -AdjustCFrameToVisc.Z) -- to fly anim
+
+local SpawnVisceratorButton = VisceratorGui:WaitForChild("SpawnVisc") -- Button to spawn visc when can to
+local SpawnViscConnection 
+SpawnViscConnection = SpawnVisceratorButton.MouseButton1Click:Connect(function()
+
+	SpawnViscEvent:FireServer() -- gonna call remote even to server and if sever accept, will spawn on server, give network ownership to Visc part
+	SpawnVisceratorButton.Visible = false -- and gonna use on client then to do everything except deal damage, will hold that part on server!
+
+end)
+
+NewRayCastParams.FilterDescendantsInstances = {Character, Teams, VisceratorsFolder, PlayerTilesFolder} -- Final params settings! Gonna skip all of them! (Of Objects which shall be ignored by RayCast when doing new Rays!!)
+
+-- There will be all variables for usage!
+
+
+
+
+
+
+
+-- Some space to easily see difference between Vars/Funcs/Connections/Last manual Setups from some script lines! 
+
+
+
+
+-- Now starting introduction to Functins! 
+
+function GiveNewTickToLoop(NewFunction) -- Gonna use to find out based on new action which tick and its amount to use in main loop!
+
+	return FunctionsAndTheirTicksToLoop[NewFunction]
+
+end
+
+function MakeNewPath(StarterPos, FinalPos) -- Gonna use it to make new Pathfinding!
+
+	return NewPathForViscerator:GetWaypoints(NewPathForViscerator:ComputeAsync(StarterPos, FinalPos)) 
+
+end
+
+function CastNewRay (StarterPos, FinalPos) -- Casting new ray by given Positions!
+
+	local Distance = (StarterPos - FinalPos).Magnitude
+	return workspace:Raycast(StarterPos, (FinalPos - StarterPos).Unit * Distance, NewRayCastParams)
+
+end
+
+function CreateCurrentTileAndItsName(CurrentPosition) -- Create Tile Name And Axis! (Will be used a lot to create or check and update tiles, to destroy as well, in some rare cases!)
+	-- Current Position -> Pos Of Character usually and in rare cases of Viscerator to update new Path of Viscerator!
+	local TileAxis = Vector3.new(math.floor((TilesCenter.X - CurrentPosition.X) / SingleTileSize), math.floor((TilesCenter.Y - CurrentPosition.Y) / SingleTileSize), math.floor((TilesCenter.Z - CurrentPosition.Z) / SingleTileSize) )
+	local TileName = "X"..tostring(TileAxis.X).."Y"..tostring(TileAxis.Y).."Z"..tostring(TileAxis.Z)
+
+	return TileAxis, TileName
+
+end
+
+function DestroyTilesOnExhausting() -- Destroy all tiles but only in case when Limit of them per the same moment are reached!
+
+	local TilesToDestroy :IntValue = TilesToDestroyInTotal 
+	local TotalTilesDestroyed : IntValue = 0
+	local CurrentTileToSearch :IntValue = -1
+	local SortedTilesTable = {} -- Use this table to get all tiles and sort by when they were updated lastly!
+	local TilesTableToSearch = {} -- Final table which will help to put sorted tables in keys and easily receive them to destroy then!
+	local HideTileAtVisc = PlayerTilesFolder:FindFirstChild(CurrentTileVisceratorAt) -- just cur tile which is using to hide if it somehow can be destroyed!
+	HideTileAtVisc.Parent = game.ReplicatedStorage -- gonna switch it to rep and clone other of it to use for destroying and and then return original one tile!
+	local NewFakeTile = HideTileAtVisc:Clone() -- Fake Tile for the trick above!
+	NewFakeTile.Parent = PlayerTilesFolder
+
+	for i, GetAllTiles in pairs(PlayerTilesFolder:GetChildren()) do
+
+		table.insert(SortedTilesTable, {["LastTimeTileUsed"] = GetAllTiles:FindFirstChild("LastTimeTileUsed").Value; ["TileInstance"] = GetAllTiles})
+		--SortedTilesTable = {["LastTimeTileUsed"] = GetAllTiles:FindFirstChild("LastTimeTileUsed").Value; ["TileInstance"] = GetAllTiles}
+
+	end
+
+	table.sort(SortedTilesTable, function(a,b)
+
+		return a["LastTimeTileUsed"] < b["LastTimeTileUsed"] -- sort last ones as first to destroy!
+
+	end)
+
+	for i, SortedTiles in pairs(SortedTilesTable) do
+
+		TilesTableToSearch[i] = SortedTiles["TileInstance"]
+
+	end
+
+	-- so basically quickly sorted and put all tiles instances for destroying!
+	repeat  -- destroy tiles quickly!
+
+		TotalTilesDestroyed += 1
+		CurrentTileToSearch += TilesIncrementPerDestroy
+		TilesTableToSearch[CurrentTileToSearch]:Destroy()
+
+	until TotalTilesDestroyed >= TilesToDestroy
+
+	if NewFakeTile and NewFakeTile.Parent == PlayerTilesFolder then -- check if fake tile still exist then destroy it!
+
+		NewFakeTile:Destroy()
+
+	end
+
+	HideTileAtVisc.Parent = PlayerTilesFolder
+	-- finished i guess!!!
+
+end
+
+function CheckAndCreateOrUpdateTileFolder(TileAxis, TileName, HumanoidRootPartPosition) -- just check if tile exist or create if no, then simply update Char position in tile last time were!(use for smoother pathfinding!)
+
+	local PossibleCurrentTileFolder = PlayerTilesFolder:FindFirstChild(TileName)
+	TotalTimesTilesUsed += 1
+
+	if PossibleCurrentTileFolder then -- if exist already, just update quickly important stats!
+
+		PossibleCurrentTileFolder:FindFirstChild("SpecialPosition").Value = HumanoidRootPartPosition
+		PossibleCurrentTileFolder:FindFirstChild("LastTimeTileUsed").Value = TotalTimesTilesUsed -- very important, main usage of sorting tiles for pathfind and destroy tiles actions!
+		PossibleCurrentTileFolder:FindFirstChild("SpecialPointPart").Position = HumanoidRootPartPosition -- only for showcase purpose
+
+	else -- if not exist then simply create! I think not much desc needed here
+
+		TotalTilesCreated += 1
+		--TotalTimesTilesUsed += 1
+		local NewTileFolder = TileFolderExample:Clone()
+		NewTileFolder.Name = TileName
+		NewTileFolder.TileName.Value = TileName -- Unique name
+		NewTileFolder.TilePosition.Value = TileAxis -- Vector3
+		NewTileFolder.SpecialPosition.Value = HumanoidRootPartPosition -- HRP.Position!
+		NewTileFolder.TileCreatedOrder.Value = TotalTilesCreated -- Just unique numb of when tile was created
+		NewTileFolder.LastTimeTileUsed.Value = TotalTimesTilesUsed -- Last time was used for any purposes!
+		NewTileFolder.Parent = PlayerTilesFolder
+
+		local NewTilePart = TilePartExample:Clone() -- this part for showcase purpose only!
+		NewTilePart.Name = "TilePart"
+		NewTilePart.Position = Vector3.new(TilesCenter.X - (TileAxis.X * SingleTileSize) - (SingleTileSize/2), TilesCenter.Y - (TileAxis.Y * SingleTileSize) - (SingleTileSize/2), TilesCenter.Z - (TileAxis.Z * SingleTileSize) - (SingleTileSize/2))
+		NewTilePart.Parent = NewTileFolder
+
+		local NewSpecialPointPart = SpecialPointPartExample:Clone() -- Same showcase only! 
+		NewSpecialPointPart.Name = "SpecialPointPart"
+		NewSpecialPointPart.Position = HumanoidRootPartPosition
+		NewSpecialPointPart.Parent = NewTileFolder
+
+	end
+	LastTileWhichWasChanged = TileName -- which tile was changed last time! Using for destroying and most important, to where start from using pathfind as well checking if quickly can be reached by raycast and then flying to char!
+
+	if #PlayerTilesFolder:GetChildren() >= TilesAtDestroy then -- if too many exsit at same moment then simply destroy some!
+
+		DestroyTilesOnExhausting() -- use this exact function!
+
+	end
+
+end
+
+function DestroyUnnecessaryTiles(TileAtVisceratorNow) -- Destroy all of unnecessary Tiles but not when limit reached, only when some of tiles no longer needed!
+
+	if not PlayerTilesFolder:FindFirstChild(TileAtVisceratorNow) then -- if Current Tile in which Visc now staying not exist for reasons by unknown, create one quickly!
+
+		local Axis, Name = CreateCurrentTileAndItsName(Viscerator.Position)
+		CheckAndCreateOrUpdateTileFolder(Axis, Name, HumanoidRootPart.Position)
+		CurrentTileVisceratorAt = Name
+		TileAtVisceratorNow = Name
+
+
+	end
+
+	local MinTilesLastTimeUsedNumber = PlayerTilesFolder:WaitForChild(TileAtVisceratorNow):FindFirstChild("LastTimeTileUsed").Value -- gonna use tile at which Visc is currently
+	local TilesWereDestroyed = 0 
+
+	for i, AllTiles in pairs(PlayerTilesFolder:GetChildren()) do -- Destroy all Tiles which were updated before of last tile at which Visc is now (those who no longer needed as they are even older than Tile at which Visc now)
+
+		if AllTiles:FindFirstChild("LastTimeTileUsed").Value < MinTilesLastTimeUsedNumber then
+
+			TilesWereDestroyed += 1
+			AllTiles:Destroy()
+
+		end
+
+		CurrentTilesInUse -= TilesWereDestroyed
+
+	end
+
+end
+
+
+function TeleportViscerator (Char, Visc) -- To instantly Teleport Viscerator To Goal Position!
+
+	Visc.CFrame = Char.CFrame * VisceratorOffset 
+
+
+end
+
+function CheckIfLimitsReached (Visc, HRP, LastPathUpdateTime) -- Check if Limits reached, gonna be used in Moving loop to see if Visc must be teleported to player!
+
+	local LimitsReachedState = false
+
+	if os.clock() - LastPathUpdateTime >= MaxTimeWithoutUpdatePath or (Visc.Position - HRP.Position).Magnitude >= MaxDistance then
+
+		TeleportViscerator(HumanoidRootPart, Visc) -- use to send HRp of plr and Visc Part with Position property!
+
+		LimitsReachedState = true
+
+	end
+
+	return LimitsReachedState
+
+end
+
+
+function CheckIfActionAndLoopMustBeChanged() -- this function will help to decide if new action shall be started and if so, if can continue in same loop or must use new one!
+
+	local ChangeAction = false -- if true will change action
+	local ChangeLoop = false -- if current action used when switched to new, must use new loop type instead of the same!
+	local LoopToChange = nil;--- if not nil means to new loop must be changed, it is stringvalue tho!  
+	if CurrentActionVisceratorDoing.Value ~= VisceratorActionToDo.Value then -- if actiont to which must use is not the same as action using now! 
+
+		ChangeAction = true
+
+		if TableWithNamesOfAllActionsTypes[CurrentActionVisceratorDoing.Value]["LoopType"] == TableWithNamesOfAllActionsTypes[VisceratorActionToDo.Value]["LoopType"] then
+
+		else ChangeLoop = true; LoopToChange = TableWithNamesOfAllActionsTypes[VisceratorActionToDo.Value]["LoopType"]
+
+		end
+
+	end
+
+	return ChangeAction, ChangeLoop, LoopToChange
+
+end -- normally shall use it alll not inside of loop but inside of change event when ACtionToDo.Changed, will by a lot decrease consuming!
+-- and loop only for final BoolValue like if New act then set new if break loop and change new, change to new and break current!
+
+function ChangeActionAndLoop() -- Gonna be used to Change to new Loop from old one! Same for action!
+
+	local ChangeAction = false
+	local ChangeLoop = false
+	local LoopToChange = nil
+	local ActionToChangeTo = nil
+
+	ChangeAction, ChangeLoop, LoopToChange = CheckIfActionAndLoopMustBeChanged() -- use in prev function to check if loop/func must be changed!
+
+	if ChangeAction == true then -- if must change act
+
+		CurrentActionVisceratorDoing.Value = VisceratorActionToDo.Value -- Change Action and check about loop!
+
+		if ChangeLoop ==  true then -- in case we must change loop to other type as well!
+
+			LoopsToCreateValuesTable[LoopToChange].Value = true -- Activate New Loop!
+			-- Break Current Loop! 
+			ActionToChangeTo = CurrentActionVisceratorDoing.Value -- to switch current action to new one and then use it instead! FuncsTable[CurAc.V](Args)
+			-- for loop same but with FunctsToLoopsT[CurAc.V](Args)
+		end
+
+		ActionToChangeTo = CurrentActionVisceratorDoing.Value -- to which action to change if no loop must be destroyed!
+		-- just small spot to check if for certain new current states some things which run must be stopped to, or which not run, to be created!
+		if ActionToChangeTo == "PlacedOnBack" and TilesLoopActive == true then 
+
+			BreakTilesLoop = true
+
+		elseif ActionToChangeTo ~= "PlacedOnBack" and TilesLoopActive == false then -- Solution here instad of old "PlacedAtBack" new "PlacedOnBack!"
+
+			CreateTilesLoop.Value = true -- will create tiles loop!
+
+		end
+
+		if ActionToChangeTo == "FollowCharacter" then -- create new tile or update to right pos and tile visc in case of it found!
+
+			local NewTileAxis, NewTileName = CreateCurrentTileAndItsName(Viscerator.Position) 
+			CheckAndCreateOrUpdateTileFolder(NewTileAxis, NewTileName, Viscerator.Position)
+			PlayerTilesFolder:FindFirstChild(NewTileName):FindFirstChild("LastTimeTileUsed").Value = 0 
+			CurrentTileVisceratorAt = NewTileName 
+
+		end
+
+	end
+
+	return ChangeLoop, ActionToChangeTo
+
+end
+
+function FlyObject(Object, PosTo) -- To Simply fly object, i've used pretty strange method of Lerping from cur to final goal respecting to
+	-- 1.Each tick real time take around 0.015 probably, 2.Make sure that visc using this exact method will travel to given distance in given time 
+	-- in this example around 32 studs per second!
+	-- Anchoring to make changes be visible on both server and client as cannot update pos without anch = false using Network Ownership
+	Object.Anchored = false
+	local FlyTo = PosTo * AdjustCFrameToVisc
+	local Successs = false
+	local DistanceToFly = 0 
+	DistanceToFly = (Object.CFrame.Position - FlyTo.Position).Magnitude 
+	local SecondMoveToDistance = 32
+
+	local SingleTickCanMoveToDistance = SecondMoveToDistance / (1/0.015)
+	local ItterationsToUseCurrentFly = math.clamp(DistanceToFly / SingleTickCanMoveToDistance, 1, 1000000)
+	local StarterPosOfFlyFrom = Object.CFrame
+
+	for i = 0, ItterationsToUseCurrentFly, 1 do
+		task.wait()
+		Object.Velocity = Vector3.new(0, 0, 0) -- VERY IMPORTANT PART TO MAKE SURE PART WILL NEVER BE GLITCHED!!!
+		Object.CFrame = StarterPosOfFlyFrom:Lerp(FlyTo, i/ItterationsToUseCurrentFly)
+		LastTimeVisceratorPathUpdated = os.clock()
+	end; Object.Anchored = true
+	Successs = true
+	return Successs
+end
+
+function AttackTarget(Object, Target) -- To just attack Enemies! Object Is Visc part and Target is Instance of Enemy!
+	local FinalPosToReturn = Object.CFrame
+	local OriginalStarterPos = Object.CFrame; 
+	if Target == nil or Target:FindFirstChild("HumanoidRootPart") == nil  then return end -- if no part exist anymore!
+	local OriginalEnemyPosToAttack = Target:FindFirstChild("HumanoidRootPart").CFrame
+
+	OriginalStarterPos = CFrame.lookAt(OriginalStarterPos.Position, OriginalEnemyPosToAttack.Position)
+	OriginalStarterPos = OriginalStarterPos + OriginalStarterPos.LookVector * ((OriginalStarterPos.Position - OriginalEnemyPosToAttack.Position).Magnitude - 3) --OriginalStarterPos + OriginalStarterPos.LookVector(OriginalEnemyPosToAttack.Position) * ((OriginalStarterPos.Position - OriginalEnemyPosToAttack.Position).Magnitude - 3)
+	FlyObject(Object, OriginalStarterPos)
+	-- Basically doing some manipulations with 3D space to make Visc look at direction to attack and fly to nearby of of person whom to attack
+	-- but 2 studs away from them, from posiion started attack!
+	if LastViscAttackHappened.Value + AttackLoopTick <= os.clock() then -- if cooldown of last attack passed then time for real damage!!!!
+
+		DoAttackEvent:FireServer(Target.Name) -- to check if target exist and right on rank etc on server, and cd passed so dmg them!
+
+	end
+	FlyObject(Object, FinalPosToReturn * NegativeAdjustmentCFrame ) -- fly back to starter pos before of doing any attack!
+	-- Could change to player but much of issues could happen + not always need to so
+	-- Better to keep like this in my opinion!
+
+end
+
+function CheckAndChangeTilesLoop(NewViscAction) -- Just check and change if needed tiles Loop! Aka Destroy/Create and etc (usually used only for Spawn Visc Time and Destroying it!)
+	if NewViscAction ~= "PlacedOnBack" and TilesLoopActive == false and VisceratorSpawned.Value == true then -- added if visc spawned himself
+		CreateTilesLoop.Value = true
+		TilesLoopActive = true 
+	elseif NewViscAction == "PlacedOnBack" and TilesLoopActive == true then
+
+		BreakTilesLoop = true
+		TilesLoopActive = false 
+
+	end
+
+end
+
+function SpawnChosenNpc(ChosenNpcType) -- Simply spawn chosen Npc! By click on one of buttons from rigth side gui's frame!
+
+	local NewNpcToSpawnCFrame = Vector3.new()
+	local MouseButtonConnection
+	MouseButtonConnection = Mouse.Button1Down:Connect(function() -- Basically each time certain button hit, get their type of npc to spawn and then
+		-- Just create short Mouse button1 up connection till we do it once to get coords to where spawn npc and then simly using direction and limits spawn npc!
+		-- limit 100 studs away from player!
+		local StudsAwayToSpawn = math.clamp((Mouse.Hit.Position - HumanoidRootPart.Position).Magnitude, 12, 100)
+		NewNpcToSpawnCFrame = HumanoidRootPart.CFrame
+		NewNpcToSpawnCFrame = CFrame.lookAt(HumanoidRootPart.Position, Mouse.Hit.Position)
+		NewNpcToSpawnCFrame = NewNpcToSpawnCFrame + NewNpcToSpawnCFrame.LookVector * StudsAwayToSpawn
+		SpawnNpcEvent:FireServer(ChosenNpcType["MainRank"], ChosenNpcType["GunEquipped"], NewNpcToSpawnCFrame * CFrame.new(0,CivilianExample:GetExtentsSize().Y/2,0))
+		-- Yeah btw Server side thing too!! As Attacks as well going from Server Side!
+		--  About Npcs, they have few of following stats -> MainRank (Civ/Reb), GunEquipped true/false BoolV, LastTimeDied Intval of os.clock() when died to make sure remove enemy from visc enemies list!
+		MouseButtonConnection:Disconnect()
+
+	end)
+
+
+end
+
+function SpawnViscerator() -- Spawn visc itself! Gonna manually trigger and create some functions to start first default loop and action which is
+	-- Moving Loop and FollowingCharacter Function!
+
+	Viscerator.Anchored = true
+	Viscerator.CFrame = HumanoidRootPart.CFrame * VisceratorOffset
+	local NewTileAxis, NewTileName = CreateCurrentTileAndItsName(Viscerator.Position) 
+	CheckAndCreateOrUpdateTileFolder(NewTileAxis, NewTileName, Viscerator.Position)
+	PlayerTilesFolder:FindFirstChild(NewTileName):FindFirstChild("LastTimeTileUsed").Value = 0 
+	CurrentTileVisceratorAt = NewTileName
+	VisceratorActionToDo.Value = "FollowCharacter"
+	CurrentActionVisceratorDoing.Value = "FollowCharacter"
+
+	if TilesLoopRunning.Value == false then -- in case not running!
+
+		CreateTilesLoop.Value = true
+
+	end
+
+	if RunningLoopRunning.Value == false then -- in case this loop and fucntion did not started!
+
+		CreateMovingLoop.Value = true 
+
+	end
+
+end
+
+
+
+-- HERE ENDS All basic functions to help with main functions!
+
+-- And here starts all main functions!
+
+
+MainFunctionsTable.CreateTilesLoopFunction = function(Visc, HRP, TypeToDo) -- Func for doing Tiles function! 
+	TilesLoopRunning.Value = true; TotalTilesLoopsCreated.Value += 1 -- Test ONly
+
+	--local ChangeAction = false; 
+	--local ChangeLoop = false
+	--local LoopToChange = nil
+	local CurrentIterationOfChar = CharacterIteration
+
+	local CurrentLoopTick = FunctionsAndTheirTicksToLoop["CreateTiles"] -- to use for tick changing but in this loop only for running!
+
+	while HRP do -- loop
+
+		task.wait(CurrentLoopTick)
+
+
+		if CharacterIteration ~= CurrentIterationOfChar then -- actually old method and no used anymore but for case, shall be here 
+			TilesLoopRunning.Value = false -- Test Only
+			--TilesLoopActive = false
+			break
+
+		end -- would destroy tiles loop if it still running but new player spawned! (When Player Die they destroy Viscerator Automatically!)
+
+		if BreakTilesLoop == true then -- if must break (from other loops and functions checks) then do so!
+			TilesLoopRunning.Value = false 
+			TilesLoopActive = false
+			DestroyUnnecessaryTiles(LastTileWhichWasChanged)
+			PlayerTilesFolder:FindFirstChild(LastTileWhichWasChanged):Destroy() -- Destroy all no longer needed loops! Those which not gonna be used
+			-- for main pathfinding part!
+			break 
+
+		end
+
+		local CurTileAix, CurTileName = CreateCurrentTileAndItsName(HumanoidRootPart.Position) -- just in case create one more tile at where Hrp now
+		CheckAndCreateOrUpdateTileFolder(CurTileAix, CurTileName, HumanoidRootPart.Position)
+
+
+	end
+
+end
+
+
+MainFunctionsTable.CreateMovingLoopFunction = function(Visc, HRP, TypeToDo, PossiblePos) -- Creating Moving  Loop! FOr all movement functions!
+
+	RunningLoopRunning.Value = true -- TEST ONLY!
+	local ActionFunctionToDo = CurrentActionVisceratorDoing.Value
+	local ChangeLoop = false
+	local PossibleNewFunction = nil
+	local CurrentLoop = "MovingLoop"
+	ActionFunctionToDo = LoopsTypesAndTheirActionsFunctions[CurrentLoop][ActionFunctionToDo]
+
+	local CurrentIterationOfChar = CharacterIteration
+
+	local CurrentLoopTick = FunctionsAndTheirTicksToLoop[CurrentActionVisceratorDoing.Value] -- ganna change from inside of loop if new func with new loop tick appeared in current loop!
+	LastTimeVisceratorPathUpdated = os.clock() 
+	while Visc do
+
+		task.wait(CurrentLoopTick)
+
+
+		if CharacterIteration ~= CurrentIterationOfChar then 
+			RunningLoopRunning.Value = false -- TEST ONLY!
+			break
+
+		end
+
+		ChangeLoop, PossibleNewFunction = ChangeActionAndLoop() -- check if must destroy/make new loop and new func! Shall be used in BoolV.Change tho!
+
+		if ChangeLoop then -- if change then change! Func only or even loop if cur new func is from different loop type!
+			RunningLoopRunning.Value = false -- TEST ONLY!
+			break
+
+		elseif PossibleNewFunction then
+
+			ActionFunctionToDo = PossibleNewFunction
+			CurrentLoopTick = FunctionsAndTheirTicksToLoop[PossibleNewFunction] -- new tick based on function
+			PossibleNewFunction = false
+			ActionFunctionToDo = LoopsTypesAndTheirActionsFunctions[CurrentLoop][ActionFunctionToDo]
+
+		end
+
+		ActionFunctionToDo(Visc, HRP, PossiblePositionToMoveTo) -- Well simply use current/new function if it related to Current Loop! That easy hehe!
+
+
+	end
+
+end
+
+
+MainFunctionsTable.CreateAttackLoopFunction = function(Visc, HRP, TypeToDo, PossibleTarg) -- For Attacking! Almost the same as in other loop!
+	-- Could transfer all loops in one but won't lie i became way too tired after removing and fixing all errors from previous version of Visc
+	AttackLoopRunning.Value = true -- TEST ONLY!
+	local ActionFunctionToDo = CurrentActionVisceratorDoing.Value; 
+	local ChangeLoop = false
+	local PossibleNewFunction = nil
+	local CurrentLoop = "AttackLoop"
+	ActionFunctionToDo = LoopsTypesAndTheirActionsFunctions[CurrentLoop][ActionFunctionToDo]; 
+	local CurrentIterationOfChar = CharacterIteration
+	local CurrentLoopTick = FunctionsAndTheirTicksToLoop[CurrentActionVisceratorDoing.Value]
+
+	while Visc do
+
+		task.wait(CurrentLoopTick)
+
+
+		if CharacterIteration ~= CurrentIterationOfChar then
+			AttackLoopRunning.Value = false -- TEST ONLY!
+			break
+
+		end
+
+		ChangeLoop, PossibleNewFunction = ChangeActionAndLoop() -- might remove at least one useless function as we do almost same loool
+
+		if ChangeLoop then
+			AttackLoopRunning.Value = false -- TEST ONLY!
+			break
+
+		elseif PossibleNewFunction then
+
+			ActionFunctionToDo = PossibleNewFunction
+			CurrentLoopTick = FunctionsAndTheirTicksToLoop[PossibleNewFunction]
+			PossibleNewFunction = false
+			ActionFunctionToDo = LoopsTypesAndTheirActionsFunctions[CurrentLoop][ActionFunctionToDo]
+
+		end
+
+		-- Time To Start Doing Actions!
+
+		ActionFunctionToDo(Visc, HRP, PossibleTarget)
+
+	end
+
+end
+
+
+MovingObjectFunctions.TakeOut = function(Visc,HRP) -- Gonna do Take out action in case it is what we shall do now!
+
+	local MoveTo = HRP.CFrame * CFrame.new(-1.35, 1, 2)
+
+	FlyObject(Visc, MoveTo) -- there all right just need to move object
+	CurrentTileVisceratorAt = LastTileWhichWasChanged
+	DestroyUnnecessaryTiles(CurrentTileVisceratorAt) -- destroy all no longer needed old tiles which no longer to be used in finding new path for Visc to Player1
+
+end
+
+MovingObjectFunctions.PlacedOnBack = function(Visc, HRP) -- same for other act
+
+	local MoveTo = HRP.CFrame * CFrame.new(-1.35, -2, Visc.Size.Z/2)
+
+	FlyObject(Visc, MoveTo) 
+
+end
+
+
+MovingObjectFunctions.FollowCharacter = function(Visc, HRP) -- Hardest Func tho! Sorry for not creating for additional Funcs inside of it... Just want to
+	-- send it all today!
+
+
+	CurrentTileVisceratorAt = CurrentTileVisceratorAt -- from where we gonna start to!
+
+
+
+	if DestroyUnnecessaryTilesOnNewItteration == true then -- btw in all of main funcs gonna first check if need to desroy old tiles! (Moving Funcs!)
+
+		DestroyUnnecessaryTilesOnNewItteration = false
+		DestroyUnnecessaryTiles(CurrentTileVisceratorAt) -- will destroy all tiles which are behind of current Viscerator Position! (just take a trick!)
+
+	end
+
+	if CheckIfLimitsReached(Visc, HRP, LastTimeVisceratorPathUpdated) == true then -- tp if one of following stats limits reached!
+
+		LastTimeVisceratorPathUpdated = os.clock()
+		TeleportViscerator(HRP, Visc)
+		CurrentTileVisceratorAt = LastTileWhichWasChanged
+		DestroyUnnecessaryTilesOnNewItteration = true
+
+		return -- therefore if limits now reached simply teleport Visc and make sure All unneccessary tiles will be destroyed now
+
+	end
+
+	if PlayerTilesFolder:FindFirstChild(LastTileWhichWasChanged):FindFirstChild("LastTimeTileUsed").Value ~= 0 then -- check if can straight move to Char
+		local NewRayCastResults = CastNewRay(Visc.Position, PlayerTilesFolder:FindFirstChild(LastTileWhichWasChanged):FindFirstChild("SpecialPosition").Value)
+
+		if not NewRayCastResults then 
+
+			FlyObject(Visc, CFrame.new(PlayerTilesFolder:FindFirstChild(LastTileWhichWasChanged):FindFirstChild("SpecialPosition").Value))
+			LastTimeVisceratorPathUpdated = LastTimeVisceratorPathUpdated
+			CurrentTileVisceratorAt = LastTileWhichWasChanged
+			DestroyUnnecessaryTilesOnNewItteration = true
+
+			return -- hope this will happen mostly! What could be better than simply fly from Visc to Character in one single and straight Line?!!!!!!!!
+
+		end
+
+	end
+
+	-- therefore will fly to Visc final Pos! else shall use Pathfinding Service or wait for limits reached! 
+
+	local MinimalTileLastTimeUsed = PlayerTilesFolder:FindFirstChild(CurrentTileVisceratorAt):FindFirstChild("LastTimeTileUsed").Value
+	local AllPassedTilesTable = {}
+	local PossibleTilesWaypoints = nil
+	local TilesWaypointFound = false
+	local TileCorrectedPosition = nil
+	local CurrentTileRayCastResult = nil
+
+	for i, CurrentTiles in pairs(PlayerTilesFolder:GetChildren()) do -- Find all Tiles which were created after current one Viscerator At!
+
+		if CurrentTiles:FindFirstChild("LastTimeTileUsed").Value >= MinimalTileLastTimeUsed then
+
+			table.insert(AllPassedTilesTable, {["TileLastTimeUsed"] = CurrentTiles:FindFirstChild("LastTimeTileUsed").Value; ["TileName"] = CurrentTiles:FindFirstChild("TileName").Value})
+
+		end
+
+	end
+
+	table.sort(AllPassedTilesTable, function(a, b) -- Sort them by their Tile last time used! (Will help to start from closest to Hrp and move closer to Visc)
+
+		return a["TileLastTimeUsed"] > b["TileLastTimeUsed"]
+
+	end)
+
+	for i, TilesCheck in pairs(AllPassedTilesTable) do -- check which tile cacn be used! which is closest to Char!
+		TileCorrectedPosition =  PlayerTilesFolder:FindFirstChild(TilesCheck["TileName"]):FindFirstChild("SpecialPosition").Value
+		CurrentTileRayCastResult = CastNewRay(TileCorrectedPosition, TileCorrectedPosition + Vector3.new(0, - 1000, 0))
+		if CurrentTileRayCastResult then
+
+			TileCorrectedPosition = Vector3.new(TileCorrectedPosition.X, CurrentTileRayCastResult.Position.Y + 3, TileCorrectedPosition.Z)
+
+		end
+		PossibleTilesWaypoints = MakeNewPath(Visc.Position, TileCorrectedPosition) -- 
+
+		if #PossibleTilesWaypoints > 0 then -- if path found then! 
+
+			TilesWaypointFound = true
+			CurrentTileVisceratorAt = TilesCheck["TileName"] -- we mean now Viscerator will with high chances fly to last Tile we cheked succsefully!
+
+			break
+
+		end
+
+	end
+	-- finally just go on and fly, if fail no worry it will be handled and updated to current new visc position! 
+	if TilesWaypointFound == true then
+		local WholePathReached = true
+
+		for i, NewWayPoint in pairs(PossibleTilesWaypoints) do
+
+			if FlyObject(Visc, CFrame.new(NewWayPoint.Position)) == true then
+
+			else WholePathReached = false break -- means we failed at somewhere...
+
+			end
+
+		end
+
+		-- now for the very last time check if something went wrong on the path way then correct TileVisceratorAtCurrently
+
+		if WholePathReached == false then
+
+			MinimalTileLastTimeUsed = 10000 -- gonna use this var to help find out closeset tile to Visc! Don't worry about peformance as in most cases
+			-- it will rarely reach more than 10-30 tiles at the same time!
+			PossibleTilesWaypoints = nil -- gonna use it for closeset tile too
+
+			for i, GetAllTiles in pairs(PlayerTilesFolder:GetChildren()) do
+
+				if (GetAllTiles.TilePosition.Value - Visc.Position).Magnitude < MinimalTileLastTimeUsed then
+
+					PossibleTilesWaypoints = GetAllTiles.Name
+
+				end
+
+			end
+
+			if PossibleTilesWaypoints ~= nil then
+
+				CurrentTileVisceratorAt = PossibleTilesWaypoints
+
+			end
+
+		end
+
+		DestroyUnnecessaryTilesOnNewItteration = true -- means we anyways found some successful path and at least on some tiles moved closer to Final Pos
+		-- now shall destroy them!
+
+	end
+
+
+end
+
+
+MovingObjectFunctions.FlyToSpotAndStay = function(Visc, HRP, SpotTo) -- fly to, given by buttons and mouse funcs and connectins!
+
+	local MoveTo = CFrame.new(PossiblePositionToMoveTo) 
+
+	FlyObject(Visc, MoveTo) 
+
+end
+
+
+AttackMethodsFunctions.AttackNearestPerson = function(Visc, HRP) -- Attack nearest Civ person no matter if they are with gun or no
+
+	local ClosestTarget = nil
+	local ClosestTargetDistance = math.huge
+	local CurrentTargetSearchingDistance = 0
+
+	for i, GetAllCivilianPlayers in pairs(CivilianTeam:GetChildren()) do
+
+		CurrentTargetSearchingDistance = (GetAllCivilianPlayers:FindFirstChild("HumanoidRootPart").Position - HRP.Position).Magnitude 
+		if CurrentTargetSearchingDistance < ClosestTargetDistance and CastNewRay(Visc.Position, GetAllCivilianPlayers:WaitForChild("HumanoidRootPart").Position) == nil then
+			ClosestTarget = GetAllCivilianPlayers
+			ClosestTargetDistance = CurrentTargetSearchingDistance
+
+		end
+
+	end
+
+	if ClosestTarget ~= nil then
+
+		AttackTarget(Visc, ClosestTarget)
+
+	end
+
+	-- if cloeset person found by 1.Can be reached by ray and therefore visc and 2.Closer to visc than any other oh btw 3.If On Civs Team!
+
+end
+
+
+AttackMethodsFunctions.AttackChosenPerson = function(Visc, HRP, ChosenTarget) -- attach chosen person basically!
+
+	AttackTarget(Visc, ChosenTarget)  -- checked from func from which triggered, so such a person can be reached and etc!
+
+
+end
+
+AttackMethodsFunctions.AttackOppositeTeamEnemies = function(Visc, HRP) -- Just destroy oppostite team enemies! using some memory to remember enemies
+
+	-- Who equipped gun (of civs innocent rank)
+
+	local ListOfAllAvailableEnemies = {} -- gonna get table of all players from civilian team
+
+	for i, PlaceAllPlayersByTheirName in pairs(CivilianTeam:GetChildren()) do
+
+		ListOfAllAvailableEnemies[PlaceAllPlayersByTheirName.Name] =  PlaceAllPlayersByTheirName
+
+	end
+
+	for i, CompareNewToOldList in pairs(CurrentListOfEnemies) do
+
+		if not ListOfAllAvailableEnemies[i] then
+
+			CurrentListOfEnemies[i] = nil -- remove enemy players who are no longer to be with us... (on server)
+
+		end
+
+	end
+
+
+	for i, CheckAllAvailablePlayers in pairs(ListOfAllAvailableEnemies) do 
+
+
+		if CurrentListOfEnemies[i] then
+
+			if CurrentListOfEnemies[i]["LastTimeDied"] < CheckAllAvailablePlayers:FindFirstChild("LastTimeDied").Value then
+
+				CurrentListOfEnemies[i] = nil -- means that enemy of Visc died some time after caught, remember that if Visc caught someone once in 
+				-- lifetime, gonna remember till person dies/leave
+
+			end
+			continue -- to not waste time checking further
+		end
+		-- Here Below we gonna put all rebels as enemies from the start because they are lol, and now gonna check RayCast for civs! ONly those who caught!
+		if CheckAllAvailablePlayers:FindFirstChild("MainRank").Value == "Rebel"  or CheckAllAvailablePlayers:FindFirstChild("GunEquipped").Value == true and not CastNewRay(Visc.Position, CheckAllAvailablePlayers:FindFirstChild("HumanoidRootPart").Position) then
+
+			-- there just cast Ray and if no path blocked and Distnace <= 60 studs, put them on list of enemies!
+			-- Remember that enemy we put in TableOf CurrentEnemies format will be : Table["EnemyInstance"]; Table["LastTimeDied"] -- .Value [i] = Plr.Name
+
+			CurrentListOfEnemies[CheckAllAvailablePlayers.Name] = {["LastTimeDied"] = CheckAllAvailablePlayers:FindFirstChild("LastTimeDied").Value;
+				["EnemyInstance"] = CheckAllAvailablePlayers -- to quickly get their models to attack
+			}
+
+		end
+
+	end
+
+	-- 3.When all avaiable enemies are updated last thing left is to choose next one target to and attack!
+	-- We can do searching based on Closest or Most Dangerous + Closest! (I won't do it now but such a thing can be easily implemented using 
+	-- Table With Any possible Weapon and their Rank Of Dangerous and then simply check if SearchingTargetDangRank > CurMostDangEnemy then choose them as
+	-- else if Same rank and dinstance less then choose them! Kind of easy tbh but i'll use nearest enemy for now lol
+
+	local CurrentSearchingEnemyDistance = 0
+	local ClosestEnemyDistance = MaxAttackDistance -- Max Disctance of Visc!
+	local ChosenEnemyToAttack = nil
+	local TableOfStudsAndEnemys = {} -- just for tests ignore that part!
+	for i, AvailableEnemies in pairs(CurrentListOfEnemies) do
+
+		CurrentSearchingEnemyDistance = (AvailableEnemies["EnemyInstance"]:FindFirstChild("HumanoidRootPart").Position - Visc.Position).Magnitude 
+		TableOfStudsAndEnemys[AvailableEnemies["EnemyInstance"].Name] = CurrentSearchingEnemyDistance
+		-- No need to cast ray again as we are already put only players who can be reached by Visc!!!
+		if CurrentSearchingEnemyDistance < ClosestEnemyDistance then 
+
+			ChosenEnemyToAttack = AvailableEnemies["EnemyInstance"]
+
+		end
+
+	end
+
+	warn(TableOfStudsAndEnemys) -- ignore just for tests
+
+	-- lastly just check if some enemy were found  then simply attack them!
+
+	if ChosenEnemyToAttack then
+
+		AttackTarget(Visc, ChosenEnemyToAttack)
+		LastEnemyAttacked = ChosenEnemyToAttack -- i guess both of Cur and Last enemy attacked variables will hold Instances
+
+	end -- not used Last enemy for reason of some issues might happen with it so yeah (meant only gameplay illogical, not in scripting meaning!)
+
+
+end
+
+LoopsTypesAndTheirActionsFunctions.MovingLoop =  MovingObjectFunctions --{MovingObjectFunctions}
+LoopsTypesAndTheirActionsFunctions.AttackLoop = AttackMethodsFunctions --{AttackMethodsFunctions}
+-- some setups
+
+TableOfTriggetFunctions.TakeOut = function() -- Function to trigger take out and etc actions if such of them must to be by pressing buttons!
+
+	if ChangeActionOnCooldown.Value == false and CurrentActionVisceratorDoing.Value ~= "TakeOut" then 
+		ChangeActionOnCooldown.Value = true
+		VisceratorActionToDo.Value = "TakeOut"
+	end
+
+end
+
+TableOfTriggetFunctions.PlacedOnBack = function(Visc) -- same for dif act!
+
+	if ChangeActionOnCooldown.Value == false and CurrentActionVisceratorDoing.Value ~= "PlacedOnBack" then
+		ChangeActionOnCooldown.Value = true
+		VisceratorActionToDo.Value = "PlacedOnBack"
+	end
+end
+
+TableOfTriggetFunctions.FlyToSpotAndStay = function(Visc)
+
+	if ChangeActionOnCooldown.Value == false and CurrentActionVisceratorDoing.Value ~= "FlyToSpotAndStay" then
+		ChangeActionOnCooldown.Value = true
+		--VisceratorActionToDo.Value = "MoveToSpot"
+		local ConnectionToRun
+		ConnectionToRun = Mouse.Button1Down:Connect(function()
+
+			if not CastNewRay(Visc.Position, Mouse.Hit.Position) then -- in case we got spot, set its position and then run changes!
+
+				PossiblePositionToMoveTo = Mouse.Hit.Position
+				VisceratorActionToDo.Value = "FlyToSpotAndStay"
+				--ConnectionToRun:Dsconnect() -- 
+
+			end
+
+			ConnectionToRun:Disconnect() -- anyways first time we press mouse button, we remove this connection!
+
+		end)
+	end
+
+end
+
+TableOfTriggetFunctions.FollowCharacter = function(Visc) -- Here same! EVen it is one of the "hardest" functions of system in fact 
+
+	if ChangeActionOnCooldown.Value == false and CurrentActionVisceratorDoing.Value ~= "FollowCharacter" then
+		ChangeActionOnCooldown.Value = true
+		VisceratorActionToDo.Value = "FollowCharacter"
+	end
+
+end
+
+TableOfTriggetFunctions.AttackNearestPerson = function(Visc) -- same
+
+	if ChangeActionOnCooldown.Value == false and CurrentActionVisceratorDoing.Value ~= "PlacedAtBack" then
+		ChangeActionOnCooldown.Value = true
+		VisceratorActionToDo.Value = "AttackNearestPerson"
+	end
+
+end
+--local Target = "Target"
+TableOfTriggetFunctions.AttackChosenPerson = function(Visc) -- must make certain additions
+
+	if ChangeActionOnCooldown.Value == false and CurrentActionVisceratorDoing.Value ~= "PlacedAtBack" then
+		ChangeActionOnCooldown.Value = true
+		--VisceratorActionToDo.Value = "AttackChosenPerson"
+		PossibleTarget = nil
+		local Connection
+		Connection = Mouse.Button1Down:Connect(function()
+
+			if Mouse.Target then -- well everywhere target instead of hit lol
+
+				if Mouse.Target.Parent and Mouse.Target.Parent:FindFirstChild("HumanoidRootPart") then
+
+					CurrentChosenEnemyToAttack = Mouse.Target.Parent
+
+					PossibleTarget = Mouse.Target.Parent -- in case we touched plrs body part
+
+				elseif Mouse.Target.Parent.Parent and Mouse.Target.Parent.Parent:FindFirstChild("HumanoidRootPart") then
+
+					PossibleTarget = Mouse.Target.Parent.Parent -- in case we touched Accesory which is child of body part
+
+				end
+
+				if Teams.CivilianTeam:FindFirstChild(PossibleTarget.Name) and (Teams.CivilianTeam:FindFirstChild(PossibleTarget.Name):FindFirstChild("HumanoidRootPart").Position - Visc.Position).Magnitude <= MaxAttackDistance and not CastNewRay(Visc.Position, PossibleTarget:FindFirstChild("HumanoidRootPart").Position) then -- means target mouse hit, is Body of Human and also its name stored in Civs Team!
+
+					VisceratorActionToDo.Value = "AttackChosenPerson"
+
+				end
+			end
+
+			Connection:Disconnect()
+
+		end) -- Bascially we if can to, open mouse event and first time button1down triggered, check if someone found and they are part of Civilian!
+		-- Then Simply approve them as target and approve attacking them! else do not forget to remove/change unnecessary variables when need to!
+	end
+
+end
+
+TableOfTriggetFunctions.AttackOppositeTeamEnemies = function(Visc) -- same!
+
+	if ChangeActionOnCooldown.Value == false and CurrentActionVisceratorDoing.Value ~= "PlacedAtBack" then
+		ChangeActionOnCooldown.Value = true
+		VisceratorActionToDo.Value = "AttackOppositeTeamEnemies"
+	end
+
+end
+
+
+
+-- Now all functions which will be used in Viscerators system are finally finished!
+
+-- Now starts all connections! (Most of them will be used for whole process of player session!)
+
+CurrentActionVisceratorDoing.Changed:Connect(function(NewViscState) -- connection for cur visc if changed then use func to check and cahnge Func/Loop!
+
+	CheckAndChangeTilesLoop(NewViscState) -- gonna break/create tiles loop in cases it is required
+
+end)
+
+CreateTilesLoop.Changed:Connect(function(NewState) -- some tiles loops triggered! Already checked to be rightly used on specific cases!
+
+	if NewState == true then
+
+		CreateTilesLoop.Value = false
+		BreakTilesLoop = false
+		TilesLoopActive = true
+		MainFunctionsTable.CreateTilesLoopFunction(Viscerator, HumanoidRootPart,TypeOfActionToDo)
+
+	end
+
+end)
+
+CreateMovingLoop.Changed:Connect(function(NewState) -- same for other type!
+
+	if NewState == true then
+
+		CreateMovingLoop.Value = false
+		MainFunctionsTable.CreateMovingLoopFunction(Viscerator, HumanoidRootPart,TypeOfActionToDo)
+
+	end
+
+end)
+
+CreateAttackLoop.Changed:Connect(function(NewState) -- same!
+
+	if NewState == true then
+
+		CreateAttackLoop.Value = false
+
+		MainFunctionsTable.CreateAttackLoopFunction(Viscerator, HumanoidRootPart,TypeOfActionToDo)
+
+	end
+
+end)
+
+ChangeActionOnCooldown.Changed:Connect(function(NewState) -- same! Oh wait! Just to make sure they all cannot be run at the same time almost, and therefore destroy something!
+
+	if NewState == true then
+
+		task.wait(CooldownOfAction)
+		ChangeActionOnCooldown.Value = false
+
+	end
+
+end)
+
+
+CurrentActionVisceratorDoing.Changed:Connect(function(NewState) -- chagnes for label so user can understand if new action in effect!
+
+	CurrentActionDoingLabel.Text = "Current State : "..NewState
+	LastTimeVisceratorPathUpdated = os.clock()
+
+end)
+
+SpawnViscConnection = SpawnVisceratorButton.MouseButton1Click:Connect(function() -- spawn visc! Invisble when spawneed already! 
+
+	SpawnViscEvent:FireServer()
+	SpawnVisceratorButton.Visible = false
+
+end)
+
+VisceratorSpawned.Changed:Connect(function(NewState) -- some checks if spawned then do few checks and activate some things if needed
+
+	if NewState == true then
+
+		DESTROYALLLOOPS = false
+		Viscerator = nil
+		Viscerator = VisceratorsFolder:WaitForChild(Player.Name.."Viscerator") --  remember to make visc acnhored as fast as can lol!
+		SpawnViscerator()
+
+
+
+	else SpawnVisceratorButton.Visible = true -- and destroy some of possible things which might be not
+
+		Viscerator = nil
+		CurrentActionDoingLabel.Text = "Current State : Not Spawned!"
+
+		for i, DestroyAllTiles in pairs(PlayerTilesFolder:GetChildren()) do
+
+			DestroyAllTiles:Destroy()
+
+		end
+
+		CreateTilesLoop.Value = false
+		CreateAttackLoop.Value = false
+		CreateMovingLoop.Value = false
+		BreakTilesLoop = false
+		TilesLoopActive = false 
+
+	end
+
+end)
+
+
+Player.CharacterRemoving:Connect(function() -- When Char removed to destroy visc and etc
+
+	DESTROYALLLOOPS = true
+	CharacterIteration += 1
+	CurrentActionVisceratorDoing.Value = "NONE"
+end)
+
+Player.CharacterAdded:Connect(function(NewChar) -- when added, to make sure new raycast filter will be updated correctly! So ignore all wrong parts!
+	-- and only register right parts on raycast!
+	Character = NewChar
+	HumanoidRootPart = Character:WaitForChild("HumanoidRootPart")
+	NewRayCastParams.FilterDescendantsInstances = {Character, workspace:WaitForChild("Viscerators"), workspace:WaitForChild("Teams"), PlayerTilesFolder}
+	task.wait(0.7)
+	if DESTROYALLLOOPS == true then
+
+		DESTROYALLLOOPS = false
+
+	end
+
+end)
+
+
+-- Finally last thing left is to activate some things to make system work fully correct!
+
+
+for i, GetAllButtons in pairs(VisceratorFrame:GetChildren()) do -- just quickly automate buttons and functions they might call 
+
+	if GetAllButtons.ClassName == "TextButton" then
+
+
+		local ButtonFunctionToRun = TableOfTriggetFunctions[GetAllButtons.Name]
+		TableOfButtonsToActivate[GetAllButtons.Name] = {["ButtonInstance"] = GetAllButtons;
+			["FunctionToRun"] = ButtonFunctionToRun; 
+			["Connection"] = GetAllButtons.MouseButton1Up:Connect(function()
+
+				if VisceratorSpawned.Value == true then -- only in cases when Viscerator is spawned and exist! easier to place there than for each by one
+
+					ButtonFunctionToRun(Viscerator)
+
+				end
+
+
+			end)
+		}
+
+	end
+
+end -- Finally almost the end!
+
+
+for _, GetAllButtons in pairs(SpawnCivsFrame:GetChildren()) do -- WOOHOO! Just quickly configure spawn npcs as fake Players on Civ team Buttons!
+
+	if GetAllButtons.ClassName == "TextButton" then
+
+		GetAllButtons.MouseButton1Up:Connect(function()
+
+			SpawnChosenNpc(TypesOfNpcsToSpawn[GetAllButtons.Name])
+
+		end)
+
+	end
+
+end
+
+
+CurrentActionDoingLabel.Text = "Current State : Not Spawned!" -- starter text of textlabel of what visc is currently doing!
+
+
+-- NO way i've somehow created this whole even if very primitive system in only 3 days!!!!
+
+
+-- Well we finally completed it all!!!!!
+
+
+print("Finished!")
