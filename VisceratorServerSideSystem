@@ -1,0 +1,126 @@
+local Players = game:GetService("Players")
+local Teams = workspace:WaitForChild("Teams")
+local CivilianTeam = Teams:WaitForChild("CivilianTeam")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local CooldownForViscAttack = ReplicatedStorage:WaitForChild("CooldownForViscAttack")
+local MaxDistanceOfAttack = ReplicatedStorage:WaitForChild("MaxDistanceOfAttack")
+local ViscDamage = ReplicatedStorage:WaitForChild("ViscDamage")
+local StatsToAddToPlayer = ReplicatedStorage:WaitForChild("ServerStats") 
+local SpawnViscEvent = ReplicatedStorage:WaitForChild("SpawnVisc")
+local DoAttackEvent = ReplicatedStorage:WaitForChild("DoAttack")
+local SpawnNpcsEvent = ReplicatedStorage:WaitForChild("SpawnNpcs")
+local ViscExample = ReplicatedStorage:WaitForChild("VisceratorExample")
+local Viscerators = workspace:WaitForChild("Viscerators")
+local TotalCivsSpawned = ReplicatedStorage:WaitForChild("TotalCivsSpawned")
+
+local CivilianExample = ReplicatedStorage:WaitForChild("CivilianExample")
+local Teams =  workspace:WaitForChild("Teams")
+local CivilianTeam = Teams:WaitForChild("CivilianTeam")
+-- important variables!
+local PlayersConnectionsTable = {} -- table to store and then destroy all no longer needed connections after player leave died 
+
+Players.PlayerAdded:Connect(function(NewPlayer)
+
+	local NewStats = StatsToAddToPlayer:Clone()
+	NewStats.Parent = NewPlayer
+	local ViscSpawned = NewStats:FindFirstChild("VisceratorSpawned")
+	local LastViscAttack = NewStats:FindFirstChild("LastViscAttackHappened")
+
+	local PlayerTableOfConnections = {}
+	PlayersConnectionsTable[NewPlayer.Name] = PlayerTableOfConnections
+
+	table.insert(PlayersConnectionsTable, NewPlayer.CharacterAdded:Connect(function(NewChar)
+
+		LastViscAttack.Value = os.clock()
+
+	end))
+
+	table.insert(PlayersConnectionsTable, NewPlayer.CharacterRemoving:Connect(function()
+
+		if ViscSpawned.Value == true then 
+
+			ViscSpawned.Value = false
+
+			if Viscerators:FindFirstChild(NewPlayer.Name.."Viscerator") then
+
+				Viscerators:FindFirstChild(NewPlayer.Name.."Viscerator"):Destroy()
+
+			end
+			
+
+		end
+
+	end))
+
+
+
+end)
+
+
+Players.PlayerRemoving:Connect(function(Player)
+
+	local LeavingPlayerConnections = PlayersConnectionsTable[Player.Name]
+
+	if LeavingPlayerConnections then
+
+		for _, GetAllConnections in pairs(LeavingPlayerConnections) do
+
+			GetAllConnections:Disconnect()
+
+		end
+
+	end
+
+
+end)
+
+-- just few events to run
+SpawnViscEvent.OnServerEvent:Connect(function(Plr) 
+	print("Visc Remote Started")
+	local ViscState = Plr:FindFirstChild("ServerStats"):FindFirstChild("VisceratorSpawned")
+	local NewVisc = nil
+	if ViscState.Value == false then
+		NewVisc = ViscExample:Clone()
+		NewVisc.Anchored = false
+		NewVisc.Name = Plr.Name.."Viscerator"
+		NewVisc.Parent = Viscerators
+		NewVisc:SetNetworkOwner(Plr)
+		ViscState.Value = true
+	
+	end
+
+end)
+
+
+DoAttackEvent.OnServerEvent:Connect(function(Plr, Enemy) -- Enemy is StringValue name of Enemy to Attack
+	local LastViscAttack = Plr:FindFirstChild("ServerStats"):FindFirstChild("LastViscAttackHappened")
+	local Visc = Viscerators:FindFirstChild(Plr.Name.."Viscerator")
+	local Enemy = CivilianTeam:FindFirstChild(Enemy)
+	print(LastViscAttack.Value)
+	print(Visc)
+	print(Enemy)
+	print((Visc.Position - Enemy:FindFirstChild("HumanoidRootPart").Position).Magnitude)
+	if LastViscAttack.Value +  CooldownForViscAttack.Value <= os.clock() and Visc and Enemy and  (Visc.Position - Enemy:FindFirstChild("HumanoidRootPart").Position).Magnitude <= MaxDistanceOfAttack.Value then
+
+		LastViscAttack.Value = os.clock()
+		Enemy:FindFirstChild("Humanoid"):TakeDamage(ViscDamage.Value)
+		print("Damage taken?")
+
+	end
+
+end)
+
+
+SpawnNpcsEvent.OnServerEvent:Connect(function(Plr, CivMainRank, CivGunEquipped, SpawnPosition) --  CivMainRank; StringValue. CivGunEquipped; BoolValue. SpawnPosition : CFrame.)
+	TotalCivsSpawned.Value += 1
+	local NewCiv = CivilianExample:Clone()
+	NewCiv:FindFirstChild("MainRank").Value = CivMainRank
+	NewCiv:FindFirstChild("GunEquipped").Value = CivGunEquipped
+	NewCiv:FindFirstChild("HumanoidRootPart").CFrame = SpawnPosition
+	print(SpawnPosition)
+	NewCiv.Name = NewCiv:FindFirstChild("MainRank").Value.."Gun:"..tostring(NewCiv:FindFirstChild("GunEquipped").Value).."."..TotalCivsSpawned.Value
+	NewCiv:FindFirstChild("SpawnPos").Value = SpawnPosition
+	print(NewCiv:FindFirstChild("SpawnPos").Value)
+	NewCiv.Parent = CivilianTeam
+
+end)
