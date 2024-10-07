@@ -3,7 +3,7 @@ Just watch quickly and if you wondering how things are work, i've placed short d
 1st Part Variables
 2nd Part Functions (First basic ones to help with main) (and then main ones which are used to directly change viscerator states and etc!)
 3rd part will store almost all Connections which will be needed to then find out new states of certain stats and apply new changes according to changes and etc!
-4rd and shortest part of script will be all about set up and manualy change few things to fully prepare all system to function correctly and the way it meant to be!
+4th and shortest part of script will be all about set up and manualy change few things to fully prepare all system to function correctly and the way it meant to be!
 (Most of explanation at first part of script, second one kind of empty sometimes as it is really easy to catch up what is going one, usually repetitive and simple Connections/Checks and Triggers!)
 Last part about server. Well server will run only few simple functions and Connections so 
 That is all for now i guess!
